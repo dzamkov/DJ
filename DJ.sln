@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "DJ", "DJ.fsproj", "{895E1F96-6F37-41F7-A2CC-238AB0B2BDE0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{895E1F96-6F37-41F7-A2CC-238AB0B2BDE0}.Debug|x86.ActiveCfg = Debug|x86
+		{895E1F96-6F37-41F7-A2CC-238AB0B2BDE0}.Debug|x86.Build.0 = Debug|x86
+		{895E1F96-6F37-41F7-A2CC-238AB0B2BDE0}.Release|x86.ActiveCfg = Release|x86
+		{895E1F96-6F37-41F7-A2CC-238AB0B2BDE0}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
