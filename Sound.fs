@@ -31,7 +31,7 @@ let getSamples format (buffer : byte[]) =
  
 type Sound (input : Stream) =
     static let context = new AudioContext ()
-    let stream = new Mp3Stream (input)
+    let mutable stream = new Mp3Stream (input)
     let source = AL.GenSource ()
     let bufferSize = 65536
     let buffer = Array.zeroCreate bufferSize
@@ -105,7 +105,9 @@ type Sound (input : Stream) =
     member this.Reset () =
         AL.SourceStop source
         playing <- false
-        stream.Seek (0L, SeekOrigin.Begin) |> ignore
+        input.Seek (0L, SeekOrigin.Begin) |> ignore
+        stream <- new Mp3Stream (input)
+
         let mutable buffersQueued = 0
         AL.GetSource (source, ALGetSourcei.BuffersQueued, &buffersQueued)
         let buffers = Array.zeroCreate buffersQueued
