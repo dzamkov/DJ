@@ -1,6 +1,7 @@
 ﻿module DJ.Sound
 
 open System
+open System.Collections.Generic
 open System.IO
 open OpenTK.Audio
 open OpenTK.Audio.OpenAL
@@ -22,77 +23,97 @@ let getSample (buffer : byte[]) index =
     let value = BitConverter.ToInt16 (buffer, index)
     float value / 32768.0
 
-let getSamples format (buffer : byte[]) =
-    let sampleSize = getSampleSize format
-    let samples = Array.zeroCreate (buffer.Length / sampleSize)
-    for i = 0 to samples.Length - 1 do
-        samples.[i] <- getSample buffer (i * sampleSize)
-    samples
+/// A sample buffer that includes a reference to an OpenAL buffer along with the current sample
+/// data.
+type Buffer (size : int) =
+    let data = Array.zeroCreate size
+    let id = AL.GenBuffer ()
+
+    /// Gets the OpenAL ID for this buffer.
+    member this.ID = id
+
+    /// Gets the byte data for this buffer.
+    member this.Data = data
+
  
 type Sound (input : Stream) =
     static let context = new AudioContext ()
     let mutable stream = new Mp3Stream (input)
     let source = AL.GenSource ()
-    let bufferSize = 65536
-    let buffer = Array.zeroCreate bufferSize
     let mutable playing = false
-    let mutable beatPhase = 0.0
-    let mutable beatVolume = 0.0
-    let mutable beatFrequency = 2.0
-    let mutable sampleFormat = SoundFormat.Pcm16BitMono
     let mutable sampleFrequency = 0
+    let mutable sampleFormat = SoundFormat.Pcm16BitMono
+    let bufferQueue = Queue ()
+    let mutable bufferSampleOffset = 0
     let mutable peakMax = 0.0
     let mutable peakMin = 0.0
 
-    let writeBuffer index =
-        stream.Read (buffer, 0, buffer.Length) |> ignore
-        let format = stream.Format
-        let frequency = stream.Frequency
-        sampleFormat <- format
-        sampleFrequency <- frequency
+    /// Dequeues all buffers.
+    let clearBuffers () =
+        let mutable buffersQueued = 0
+        AL.GetSource (source, ALGetSourcei.BuffersQueued, &buffersQueued)
+        let buffers = Array.zeroCreate buffersQueued
+        AL.SourceUnqueueBuffers (source, buffersQueued, buffers)
+        bufferQueue.Clear ()
+        bufferSampleOffset <- 0
 
-        AL.BufferData (index, getALFormat stream.Format, buffer, buffer.Length, frequency)
-        AL.SourceQueueBuffer (source, index)
+    /// Queues the given buffer for playing.
+    let queueBuffer (buffer : Buffer) =
+        AL.BufferData (buffer.ID, getALFormat sampleFormat, buffer.Data, buffer.Data.Length, sampleFrequency)
+        AL.SourceQueueBuffer (source, buffer.ID)
+        bufferQueue.Enqueue buffer
 
-        // Perform beat analysis
-        let mutable peakVolume = peakMax - peakMin
-        let peakSmoothing = 1.0 / float sampleFrequency
-        let beatSmoothing = 0.1 / float sampleFrequency
-        for sample in getSamples format buffer do
-            let nPeakMax = max sample (peakMax - peakSmoothing)
-            let nPeakMin = min sample (peakMin + peakSmoothing)
-            let nPeakVolume = nPeakMax - nPeakMin
-            let diff = nPeakVolume - peakVolume
-            if diff > 0.0 then 
-                let beatOffset = (beatPhase + 0.5) % 1.0 - 0.5
-                let correction = (1.0 - beatOffset * beatOffset * 4.0) * diff / (beatVolume + 0.01)
-                beatPhase <- beatPhase - beatOffset * correction
-                beatFrequency <- beatFrequency / (1.0 + beatOffset) ** (correction * 0.05)
-            else
-                beatPhase <- (beatPhase + (beatFrequency / float sampleFrequency)) % 1.0
-            beatVolume <- max (nPeakVolume * 0.5) (beatVolume - beatSmoothing)
-            peakMax <- nPeakMax
-            peakMin <- nPeakMin
-            peakVolume <- nPeakVolume
+    /// Populates the given buffer with the next set of data for the sound.
+    let writeBuffer (buffer : Buffer) =
+        stream.Read (buffer.Data, 0, buffer.Data.Length) |> ignore
+        sampleFrequency <- stream.Frequency
+        sampleFormat <- stream.Format
 
-        ()
-
-    let initializeBuffers count =
+    /// Creates, writes and queues the initial buffers for this sound.
+    let initializeBuffers count size =
         for i = 0 to count - 1 do
-            writeBuffer (AL.GenBuffer ())
+            let buffer = Buffer size
+            writeBuffer buffer
+            queueBuffer buffer
 
-    do initializeBuffers 4
+    do initializeBuffers 4 65536
+
+    /// Gets the amount of samples in the given buffer.
+    let bufferSampleSize (buffer : Buffer) = buffer.Data.Length / getSampleSize sampleFormat
+
+    /// Processes the sound information (beat volume) in the given buffer.
+    let processSamples (buffer : Buffer) start count =
+        let sampleSize = getSampleSize sampleFormat
+        let peakSmoothing = 1.0 / float sampleFrequency
+        for i = 0 to count - 1 do
+            let sample = getSample buffer.Data ((start + i) * sampleSize)
+            peakMax <- max sample (peakMax - peakSmoothing)
+            peakMin <- min sample (peakMin + peakSmoothing)
 
     member this.Update () =
+
+        // Refill processed buffers.
         let mutable buffersProcessed = 0
         AL.GetSource (source, ALGetSourcei.BuffersProcessed, &buffersProcessed)
         if buffersProcessed > 0 then
-            let buffers = Array.zeroCreate buffersProcessed
-            AL.SourceUnqueueBuffers (source, buffersProcessed, buffers)
             for i = 0 to buffersProcessed - 1 do
-                writeBuffer buffers.[i]
+                let buffer = bufferQueue.Dequeue ()
+                AL.SourceUnqueueBuffer source |> ignore
+                processSamples buffer bufferSampleOffset (bufferSampleSize buffer - bufferSampleOffset)
+                bufferSampleOffset <- 0
+                writeBuffer buffer
+                queueBuffer buffer
             if AL.GetSourceState source <> ALSourceState.Playing && playing then
                 AL.SourcePlay source
+
+        // Process additional samples.
+        let mutable sampleOffset = 0
+        AL.GetSource (source, ALGetSourcei.SampleOffset, &sampleOffset)
+        if sampleOffset > 0 then
+            let buffer = bufferQueue.Peek ()
+            let sampleOffset = min sampleOffset (buffer.Data.Length - 1)
+            processSamples buffer bufferSampleOffset (sampleOffset - bufferSampleOffset)
+            bufferSampleOffset <- sampleOffset
 
     member this.Play () =
         AL.SourcePlay source
@@ -107,14 +128,8 @@ type Sound (input : Stream) =
         playing <- false
         input.Seek (0L, SeekOrigin.Begin) |> ignore
         stream <- new Mp3Stream (input)
-
-        let mutable buffersQueued = 0
-        AL.GetSource (source, ALGetSourcei.BuffersQueued, &buffersQueued)
-        let buffers = Array.zeroCreate buffersQueued
-        AL.SourceUnqueueBuffers (source, buffersQueued, buffers)
-        for i = 0 to buffersQueued - 1 do
-            writeBuffer buffers.[i]
-        ()
+        clearBuffers ()
+        initializeBuffers 4 65536
 
     /// Gets or sets wether the sound is playing.
     member this.Playing
@@ -141,20 +156,5 @@ type Sound (input : Stream) =
             float volume
         and set (value : float) = AL.Source (source, ALSourcef.Gain, float32 value)
 
-    /// Gets the current beat phase for the sound as a value between 0.0 (beginning of a beat) and
-    /// 1.0 (beginning of the next beat).
-    member this.BeatPhase =
-        let mutable sampleOffset = 0
-        let mutable bufferCount = 0
-        AL.GetSource (source, ALGetSourcei.SampleOffset, &sampleOffset)
-        AL.GetSource (source, ALGetSourcei.BuffersQueued, &bufferCount)
-        let sampleOffset = bufferCount * bufferSize / getSampleSize sampleFormat - sampleOffset
-        let timeOffset = float sampleOffset / float sampleFrequency
-        let beatOffset = timeOffset * beatFrequency
-        (beatPhase - beatOffset % 1.0 + 1.0) % 1.0
-
-    /// Gets the current beat volume as a value between 0.0 and 1.0.
-    member this.BeatVolume = beatVolume
-
-    /// Gets the current beat frequency in beats per second.
-    member this.BeatFrequency = beatFrequency
+    /// Gets the current beat volume of the sound as a value between 0.0 and 1.0.
+    member this.BeatVolume = (peakMax - peakMin) * 0.5

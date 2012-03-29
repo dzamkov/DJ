@@ -51,21 +51,17 @@ type MainForm (sound : Sound, name : string) as this =
         g.DrawLine (majorPen, width / 2.0f, 0.0f, width / 2.0f, height)
         g.DrawLine (majorPen, 0.0f, height / 2.0f, width, height / 2.0f)
 
-        let beatVolume = sound.BeatVolume
-        let beatFrequency = sound.BeatFrequency
-        use beatPen = new Pen (Color.LightGreen, 3.0f)
-        let beatX = float32 (getPitchX (2.0 / beatFrequency))
-        g.DrawLine (beatPen, beatX, 0.0f, beatX, height)
-
         if sound.Playing then
             let pointX = float32 (getPitchX sound.Pitch)
             let pointY = float32 (getVolumeY sound.Volume)
             g.FillEllipse (Brushes.Red, pointX - 5.0f, pointY - 5.0f, 10.0f, 10.0f)
 
-            let beatPhase = sound.BeatPhase
-            use beatPen = new Pen (Color.FromArgb (int ((1.0 - beatPhase) * beatVolume * 255.0), 255, 0, 0), 4.0f)
-            let radius = 100.0f * float32 (1.0 - beatPhase)
-            g.DrawEllipse (beatPen, pointX - radius * 0.5f, pointY - radius * 0.5f, radius, radius)
+            let beatVolume = sound.BeatVolume
+            let alpha = int (beatVolume * 255.0)
+            if alpha > 0 then
+                use beatPen = new Pen (Color.FromArgb (alpha, 255, 0, 0), 4.0f)
+                let radius = 100.0f * float32 beatVolume
+                g.DrawEllipse (beatPen, pointX - radius * 0.5f, pointY - radius * 0.5f, radius, radius)
 
     /// Updates this form.
     member this.Update () =
