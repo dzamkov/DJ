@@ -111,7 +111,8 @@ type Sound (input : Stream) =
         AL.GetSource (source, ALGetSourcei.SampleOffset, &sampleOffset)
         if sampleOffset > 0 then
             let buffer = bufferQueue.Peek ()
-            let sampleOffset = min sampleOffset (buffer.Data.Length - 1)
+            let sampleSize = getSampleSize sampleFormat
+            let sampleOffset = min sampleOffset (buffer.Data.Length / sampleSize - 1)
             processSamples buffer bufferSampleOffset (sampleOffset - bufferSampleOffset)
             bufferSampleOffset <- sampleOffset
 

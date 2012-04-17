@@ -3,6 +3,7 @@
 open DJ.Sound
 open DJ.MainForm
 open System
+open System.Threading
 open System.Windows.Forms
 open System.IO
 
@@ -23,6 +24,7 @@ let run (file : string) =
     while form.Visible do
         sound.Update ()
         form.Update ()
+        Thread.Sleep 5
         Application.DoEvents ()
 
 [<STAThread>]
