@@ -65,7 +65,10 @@ type Sound (input : Stream) =
 
     /// Populates the given buffer with the next set of data for the sound.
     let writeBuffer (buffer : Buffer) =
-        stream.Read (buffer.Data, 0, buffer.Data.Length) |> ignore
+        try
+            stream.Read (buffer.Data, 0, buffer.Data.Length) |> ignore
+        with
+        | _ -> ()
         sampleFrequency <- stream.Frequency
         sampleFormat <- stream.Format
 
